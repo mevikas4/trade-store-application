@@ -1,0 +1,6 @@
+# MongoDB Configuration
+spring:
+  data:
+    mongodb:
+      uri : mongodb+srv://mevikas4_db_user:JYSb3ydEKOCJAKk9@cluster0.ghgk1bh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+      database : Task

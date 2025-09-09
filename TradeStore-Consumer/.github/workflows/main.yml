@@ -1,0 +1,94 @@
+name: Spring Boot CI/CD Pipeline
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build_and_scan:
+    runs-on: ubuntu-latest
+    steps: # Step 1: Checkout the source code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Java environment with caching
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      # Step 3: Grant execute permission to the Maven wrapper
+      - name: Grant execute permission to mvnw
+        run: chmod +x mvnw
+
+      # Step 4: Build the application and run automated tests
+      - name: Build and run tests with Maven
+        run: ./mvnw clean verify # 'verify' runs tests and builds the project
+
+      # Step 5: Perform Open Source Vulnerability Scan (using OWASP Dependency-Check)
+      - name: OWASP Dependency-Check Scan
+        uses: dependency-check/Dependency-Check_Action@v10 # Or use Snyk action: snyk/actions/maven@master
+        with:
+          project: 'spring-boot-app'
+          path: '.'
+          format: 'HTML,SARIF'
+          out: 'reports'
+          args: '--failOnCVSS 7' # Fail build on vulnerabilities with CVSS score 7 or higher
+
+      # Step 6: Upload test and security scan reports
+      - name: Upload test and scan reports
+        if: always() # This step will run even if previous steps fail
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            target/surefire-reports/
+            target/site/
+            reports/
+
+  # Job for deploying the application (depends on the previous job succeeding)
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build_and_scan
+    if: success() && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: target/spring-boot-app.jar # Adjust the JAR name if needed
+            
+        # Step 7: Deployment to a server (Example: using a deployment tool or SSH)
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_SERVER_HOST }}
+          username: ${{ secrets.DEPLOY_SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            # Navigate to the deployment directory
+            DEPLOY_DIR="/opt/my-app"
+            cd "$DEPLOY_DIR"
+            
+            # Stop the currently running service
+            sudo systemctl stop spring-boot-app.service || true
+            
+            # Remove the old JAR and move the new one
+            rm -f spring-boot-app.jar.old
+            mv spring-boot-app.jar spring-boot-app.jar.old
+            mv target/spring-boot-app.jar spring-boot-app.jar
+            
+            # Start the new application
+            sudo systemctl start spring-boot-app.service
+            
+            # Optional: Check the service status to verify deployment
+            sleep 10
+            sudo systemctl status spring-boot-app.service
